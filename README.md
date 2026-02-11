@@ -16,7 +16,7 @@
 - **Payment Log** — веб-интерфейс со списком всех платежей (автообновление 5 сек)
 - **Token verification** — SHA-256 подпись запросов (алгоритм 1:1 с реальным T-Bank)
 
-![screenshot](img/1.png)
+![screenshot](img/2.png)
 
 ## Быстрый старт
 
