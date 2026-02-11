@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Оплата — TBank Emulator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
+      padding: 32px;
+      width: 100%;
+      max-width: 420px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .header .logo {
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+    }
+    .header .logo span { color: #ffdd2d; }
+    .header .badge {
+      display: inline-block;
+      background: #fff3cd;
+      color: #856404;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-top: 4px;
+    }
+    .info {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+    .info .description {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .info .amount {
+      font-size: 28px;
+      font-weight: 700;
+      color: #333;
+    }
+    .info .amount span {
+      font-size: 18px;
+      color: #666;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #666;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      color: #333;
+      background: #fafafa;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus {
+      border-color: #ffdd2d;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+    }
+    .row .form-group { flex: 1; }
+    .actions {
+      margin-top: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:active { transform: scale(0.99); }
+    .btn-approve {
+      background: #ffdd2d;
+      color: #333;
+    }
+    .btn-reject {
+      background: #f8f9fa;
+      color: #dc3545;
+      border: 1px solid #dc3545;
+    }
+    .warning {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 11px;
+      color: #999;
+    }
+    .order-id {
+      text-align: center;
+      font-size: 12px;
+      color: #999;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo"><span>T</span>-Bank</div>
+      <div class="badge">EMULATOR</div>
+    </div>
+
+    <div class="info">
+      <div class="description"><%= description %></div>
+      <div class="amount"><%= (amount / 100).toFixed(2) %> <span>RUB</span></div>
+    </div>
+
+    <div class="form-group">
+      <label>Номер карты</label>
+      <input type="text" value="4300 0000 0000 0777" readonly>
+    </div>
+    <div class="row">
+      <div class="form-group">
+        <label>Срок</label>
+        <input type="text" value="12/28" readonly>
+      </div>
+      <div class="form-group">
+        <label>CVC</label>
+        <input type="text" value="123" readonly>
+      </div>
+    </div>
+
+    <div class="actions">
+      <form method="POST" action="<%= baseUrl %>/payment/<%= paymentId %>/complete" style="display:contents">
+        <input type="hidden" name="action" value="approve">
+        <button type="submit" class="btn btn-approve">Оплатить</button>
+      </form>
+      <form method="POST" action="<%= baseUrl %>/payment/<%= paymentId %>/complete" style="display:contents">
+        <input type="hidden" name="action" value="reject">
+        <button type="submit" class="btn btn-reject">Отклонить оплату</button>
+      </form>
+    </div>
+
+    <div class="order-id">Order #<%= orderId %></div>
+    <div class="warning">Это эмулятор платежного шлюза. Реальное списание не происходит.</div>
+  </div>
+</body>
+</html>
