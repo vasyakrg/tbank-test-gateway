@@ -31,4 +31,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/docker-gitea-backup-s3:latest
+          tags: ghcr.io/${{ github.repository_owner }}/tbank-test-gateway:latest
