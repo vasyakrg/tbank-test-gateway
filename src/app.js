@@ -14,6 +14,22 @@ app.set("views", path.join(__dirname, "views"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// --- Payment method variants (randomly assigned on confirm) ---
+
+const PAYMENT_METHODS = [
+  { Route: "ACQ", Source: "TinkoffPay" },
+  { Route: "SBER", Source: "SberPay" },
+  { Route: "QR", Source: "qrsbp" },
+];
+
+function getRandomPaymentParams() {
+  const method = PAYMENT_METHODS[Math.floor(Math.random() * PAYMENT_METHODS.length)];
+  return [
+    { Key: "Route", Value: method.Route },
+    { Key: "Source", Value: method.Source },
+  ];
+}
+
 // --- TBank API Endpoints ---
 
 // POST /v2/Init — Create payment
@@ -95,12 +111,17 @@ app.post("/v2/GetState", (req, res) => {
   const response = {
     Success: true,
     ErrorCode: "0",
+    Message: "OK",
     TerminalKey: TERMINAL_KEY,
     Status: payment.status,
     PaymentId: String(payment.paymentId),
     OrderId: payment.orderId,
     Amount: payment.amount,
   };
+
+  if (payment.paymentParams) {
+    response.Params = payment.paymentParams;
+  }
 
   console.log("[GetState] Response:", { PaymentId: payment.paymentId, Status: payment.status });
 
@@ -156,7 +177,7 @@ app.post("/v2/Cancel", async (req, res) => {
     PaymentId: String(payment.paymentId),
     OrderId: payment.orderId,
     OriginalAmount: payment.amount,
-    Amount: payment.amount,
+    NewAmount: 0,
   };
 
   console.log("[Cancel] Payment refunded:", { PaymentId: payment.paymentId });
@@ -207,7 +228,12 @@ app.post("/payment/:paymentId/complete", async (req, res) => {
 
   if (action === "approve") {
     storage.updateStatus(String(payment.paymentId), "CONFIRMED");
-    console.log("[Payment] Approved:", { PaymentId: payment.paymentId, OrderId: payment.orderId });
+    payment.paymentParams = getRandomPaymentParams();
+    console.log("[Payment] Approved:", {
+      PaymentId: payment.paymentId,
+      OrderId: payment.orderId,
+      Params: payment.paymentParams,
+    });
 
     // Send webhook
     try {
@@ -258,6 +284,10 @@ async function sendWebhook(payment, status) {
     ExpDate: "1228",
     CardId: "123456",
   };
+
+  if (status === "CONFIRMED" && payment.paymentParams) {
+    payload.Params = payment.paymentParams;
+  }
 
   payload.Token = generateToken(payload, PASSWORD);
 
