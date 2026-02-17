@@ -261,12 +261,31 @@ app.post("/payment/:paymentId/complete", async (req, res) => {
     return res.redirect(payment.failURL);
   }
 
+  if (action === "insufficient_funds") {
+    storage.updateStatus(String(payment.paymentId), "REJECTED");
+    payment.paymentParams = [
+      { Key: "Route", Value: "ACQ" },
+      { Key: "Source", Value: "cards" },
+    ];
+    console.log("[Payment] Insufficient funds:", { PaymentId: payment.paymentId, OrderId: payment.orderId });
+
+    // Send webhook with error code 51 (insufficient funds)
+    try {
+      await sendWebhook(payment, "REJECTED", { errorCode: "51", message: "Insufficient funds" });
+      console.log("[Payment] Webhook sent: REJECTED (insufficient funds)");
+    } catch (err) {
+      console.error("[Payment] Webhook failed:", err.message);
+    }
+
+    return res.redirect(payment.failURL);
+  }
+
   res.status(400).send("Invalid action");
 });
 
 // --- Webhook ---
 
-async function sendWebhook(payment, status) {
+async function sendWebhook(payment, status, options = {}) {
   if (!payment.notificationURL) {
     console.log("[Webhook] No NotificationURL, skipping");
     return;
@@ -278,14 +297,18 @@ async function sendWebhook(payment, status) {
     Success: status === "CONFIRMED",
     Status: status,
     PaymentId: String(payment.paymentId),
-    ErrorCode: "0",
+    ErrorCode: options.errorCode || "0",
     Amount: payment.amount,
     Pan: "430000******0777",
     ExpDate: "1228",
     CardId: "123456",
   };
 
-  if (status === "CONFIRMED" && payment.paymentParams) {
+  if (options.message) {
+    payload.Message = options.message;
+  }
+
+  if (payment.paymentParams) {
     payload.Params = payment.paymentParams;
   }
 

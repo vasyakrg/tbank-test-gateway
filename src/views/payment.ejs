@@ -121,6 +121,11 @@
       color: #dc3545;
       border: 1px solid #dc3545;
     }
+    .btn-insufficient {
+      background: #f8f9fa;
+      color: #e67e22;
+      border: 1px solid #e67e22;
+    }
     .warning {
       margin-top: 16px;
       text-align: center;
@@ -170,6 +175,10 @@
       <form method="POST" action="<%= baseUrl %>/payment/<%= paymentId %>/complete" style="display:contents">
         <input type="hidden" name="action" value="reject">
         <button type="submit" class="btn btn-reject">Отклонить оплату</button>
+      </form>
+      <form method="POST" action="<%= baseUrl %>/payment/<%= paymentId %>/complete" style="display:contents">
+        <input type="hidden" name="action" value="insufficient_funds">
+        <button type="submit" class="btn btn-insufficient">Недостаточно средств</button>
       </form>
     </div>
 
