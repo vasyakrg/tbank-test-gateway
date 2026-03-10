@@ -8,6 +8,8 @@ const PORT = process.env.PORT || 3000;
 const TERMINAL_KEY = process.env.TERMINAL_KEY || "TBankGatewayEmulatorLocal";
 const PASSWORD = process.env.PASSWORD || "emulator_secret_password";
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const WEBHOOK_DELAY_SECONDS = parseInt(process.env.WEBHOOK_DELAY_SECONDS, 10) || 3;
+const WEBHOOK_DELAY_PERCENT = parseInt(process.env.WEBHOOK_DELAY_PERCENT, 10) || 50;
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -285,10 +287,23 @@ app.post("/payment/:paymentId/complete", async (req, res) => {
 
 // --- Webhook ---
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function sendWebhook(payment, status, options = {}) {
   if (!payment.notificationURL) {
     console.log("[Webhook] No NotificationURL, skipping");
     return;
+  }
+
+  // Artificial delay for successful payments
+  if (status === "CONFIRMED" && WEBHOOK_DELAY_PERCENT > 0 && WEBHOOK_DELAY_SECONDS > 0) {
+    const roll = Math.random() * 100;
+    if (roll < WEBHOOK_DELAY_PERCENT) {
+      console.log(`[Webhook] Artificial delay ${WEBHOOK_DELAY_SECONDS}s for payment ${payment.paymentId} (roll=${roll.toFixed(1)}%, threshold=${WEBHOOK_DELAY_PERCENT}%)`);
+      await sleep(WEBHOOK_DELAY_SECONDS * 1000);
+    }
   }
 
   const payload = {
@@ -369,4 +384,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`TBank Gateway Emulator running on port ${PORT}`);
   console.log(`  TerminalKey: ${TERMINAL_KEY}`);
   console.log(`  BASE_URL: ${BASE_URL}`);
+  console.log(`  Webhook delay: ${WEBHOOK_DELAY_SECONDS}s for ${WEBHOOK_DELAY_PERCENT}% of successful payments`);
 });
