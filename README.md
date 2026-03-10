@@ -42,12 +42,14 @@ TERMINAL_KEY=MyTerminal PASSWORD=MyPassword npm start
 
 ## Переменные окружения
 
-| Переменная     | По умолчанию                  | Описание                                     |
-|----------------|-------------------------------|----------------------------------------------|
-| `PORT`         | `3000`                        | Порт сервера                                 |
-| `TERMINAL_KEY` | `TBankGatewayEmulatorLocal`   | TerminalKey для верификации запросов          |
-| `PASSWORD`     | `emulator_secret_password`    | Password для генерации/проверки Token (SHA-256) |
-| `BASE_URL`     | `http://localhost:{PORT}`     | Публичный URL сервиса (для формирования PaymentURL) |
+| Переменная                | По умолчанию                | Описание                                                    |
+|---------------------------|-----------------------------|-------------------------------------------------------------|
+| `PORT`                    | `3000`                      | Порт сервера                                                |
+| `TERMINAL_KEY`            | `TBankGatewayEmulatorLocal` | TerminalKey для верификации запросов                         |
+| `PASSWORD`                | `emulator_secret_password`  | Password для генерации/проверки Token (SHA-256)              |
+| `BASE_URL`                | `http://localhost:{PORT}`   | Публичный URL сервиса (для формирования PaymentURL)         |
+| `WEBHOOK_DELAY_SECONDS`   | `3`                         | Искусственная задержка отправки webhook (в секундах)         |
+| `WEBHOOK_DELAY_PERCENT`   | `50`                        | Процент успешных платежей, для которых применяется задержка  |
 
 **Важно:** `TERMINAL_KEY` и `PASSWORD` должны совпадать с теми, что указаны в конфигурации клиента.
 
