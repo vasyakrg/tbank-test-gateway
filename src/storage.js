@@ -14,6 +14,7 @@ function createPayment(data) {
     failURL: data.FailURL || "",
     notificationURL: data.NotificationURL || "",
     status: "NEW",
+    refundedAmount: 0,
     requestPayload: data,
     webhooks: [],
     createdAt: new Date(),
@@ -31,6 +32,15 @@ function updateStatus(paymentId, status) {
   const payment = payments.get(String(paymentId));
   if (!payment) return null;
   payment.status = status;
+  payment.updatedAt = new Date();
+  return payment;
+}
+
+function refundPayment(paymentId, amount) {
+  const payment = payments.get(String(paymentId));
+  if (!payment) return null;
+  payment.refundedAmount += amount;
+  payment.status = payment.refundedAmount >= payment.amount ? "REFUNDED" : "PARTIAL_REFUNDED";
   payment.updatedAt = new Date();
   return payment;
 }
@@ -59,4 +69,4 @@ function getWebhookLog() {
   return [...webhookLog].reverse();
 }
 
-module.exports = { createPayment, getPayment, updateStatus, logWebhook, getAllPayments, getWebhookLog };
+module.exports = { createPayment, getPayment, updateStatus, refundPayment, logWebhook, getAllPayments, getWebhookLog };

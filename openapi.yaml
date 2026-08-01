@@ -1,0 +1,498 @@
+openapi: 3.1.0
+info:
+  title: TBank Gateway Emulator API
+  version: "1.0.0"
+  description: |
+    Эмулятор платёжного шлюза T-Bank (Тинькофф) `securepay.tinkoff.ru/v2`.
+    Повторяет контракт реального Acquiring API — `Init` / `GetState` / `Cancel`,
+    подпись запросов через `Token` (SHA-256) и асинхронные webhook-уведомления
+    на `NotificationURL`.
+
+    Используйте эту спецификацию как референс контракта T-Bank Acquiring API
+    при интеграции других сервисов с платёжным шлюзом.
+
+    ### Подпись запроса (Token)
+
+    1. Берутся только root-level скалярные параметры запроса (без `Token`, без вложенных объектов/массивов вроде `Receipt`)
+    2. Добавляется `Password` терминала
+    3. Параметры сортируются по ключу
+    4. Значения конкатенируются без ключей и разделителей
+    5. Считается SHA-256 от результирующей строки
+  license:
+    name: MIT
+    url: https://github.com/vasyansk/TBank-gateway/blob/main/LICENSE
+servers:
+  - url: http://localhost:3000
+    description: Локальный запуск (BASE_URL по умолчанию)
+
+tags:
+  - name: Acquiring
+    description: Платёжный API `/v2/*` — аналог реального T-Bank Acquiring API
+  - name: Payment Page
+    description: HTML-страница оплаты и обработка действий пользователя
+  - name: Monitoring
+    description: Мониторинг платежей и health-check
+
+paths:
+  /v2/Init:
+    post:
+      tags: [Acquiring]
+      summary: Создание платежа
+      description: Полный аналог `POST https://securepay.tinkoff.ru/v2/Init`. Создаёт платёж в статусе `NEW` и возвращает ссылку на страницу оплаты.
+      operationId: init
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InitRequest"
+      responses:
+        "200":
+          description: Платёж создан либо запрос отклонён (см. `Success`/`ErrorCode`)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/InitResponse"
+                  - $ref: "#/components/schemas/ErrorResponse"
+      callbacks:
+        notification:
+          "{$request.body#/NotificationURL}":
+            post:
+              summary: Webhook-уведомление о смене статуса платежа
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      $ref: "#/components/schemas/WebhookPayload"
+              responses:
+                "200":
+                  description: Ожидается HTTP 200 с телом `OK`
+
+  /v2/GetState:
+    post:
+      tags: [Acquiring]
+      summary: Получение статуса платежа
+      description: Полный аналог `POST https://securepay.tinkoff.ru/v2/GetState`.
+      operationId: getState
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetStateRequest"
+      responses:
+        "200":
+          description: Текущее состояние платежа либо ошибка
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GetStateResponse"
+                  - $ref: "#/components/schemas/ErrorResponse"
+
+  /v2/Cancel:
+    post:
+      tags: [Acquiring]
+      summary: Возврат (refund) платежа
+      description: |
+        Полный аналог `POST https://securepay.tinkoff.ru/v2/Cancel`.
+        Доступен для платежей в статусе `CONFIRMED` или `PARTIAL_REFUNDED`.
+        Поддерживает частичный возврат: если `Amount` меньше оставшейся суммы платежа —
+        статус становится `PARTIAL_REFUNDED`, иначе (либо если `Amount` не передан) — `REFUNDED`.
+        Отправляет webhook с итоговым статусом.
+      operationId: cancel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelRequest"
+      responses:
+        "200":
+          description: Платёж возвращён либо запрос отклонён
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/CancelResponse"
+                  - $ref: "#/components/schemas/ErrorResponse"
+
+  /payment/{paymentId}:
+    get:
+      tags: [Payment Page]
+      summary: Страница оплаты
+      description: HTML-форма с декоративными полями карты и кнопками «Оплатить» / «Отклонить» / «Недостаточно средств». Доступна только для платежей в статусе `NEW`.
+      operationId: getPaymentPage
+      parameters:
+        - $ref: "#/components/parameters/PaymentIdPath"
+      responses:
+        "200":
+          description: HTML-страница оплаты
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: Платёж не найден
+        "400":
+          description: Платёж уже обработан (не в статусе `NEW`)
+
+  /payment/{paymentId}/complete:
+    post:
+      tags: [Payment Page]
+      summary: Обработка действия пользователя на странице оплаты
+      description: |
+        Переводит платёж в терминальный статус и отправляет webhook на `NotificationURL`:
+        - `approve` → `CONFIRMED`, редирект на `SuccessURL`
+        - `reject` → `REJECTED`, редирект на `FailURL`
+        - `insufficient_funds` → `REJECTED` с `ErrorCode: "51"` (эмуляция отказа банка), редирект на `FailURL`
+      operationId: completePayment
+      parameters:
+        - $ref: "#/components/parameters/PaymentIdPath"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: string
+                  enum: [approve, reject, insufficient_funds]
+      responses:
+        "302":
+          description: Редирект на `SuccessURL` или `FailURL` платежа
+        "404":
+          description: Платёж не найден
+        "400":
+          description: Платёж уже обработан либо передан неизвестный `action`
+
+  /api/payments:
+    get:
+      tags: [Monitoring]
+      summary: Список всех платежей (JSON)
+      description: Те же данные, что отображаются на странице `/log`, в формате JSON. Обновляется на странице `/log` каждые 5 секунд.
+      operationId: listPayments
+      responses:
+        "200":
+          description: Список платежей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  payments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PaymentRecord"
+
+  /log:
+    get:
+      tags: [Monitoring]
+      summary: Payment Log — веб-интерфейс мониторинга платежей
+      operationId: getLogPage
+      responses:
+        "200":
+          description: HTML-страница со списком платежей и webhook-логом
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /health:
+    get:
+      tags: [Monitoring]
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  payments:
+                    type: integer
+                    description: Количество платежей в памяти
+
+components:
+  parameters:
+    PaymentIdPath:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: "2460000000"
+
+  schemas:
+    InitRequest:
+      type: object
+      required: [TerminalKey, Amount, OrderId, Token]
+      properties:
+        TerminalKey:
+          type: string
+          description: Идентификатор терминала, должен совпадать с `TERMINAL_KEY` на сервере
+        Amount:
+          type: integer
+          description: Сумма платежа в копейках
+          example: 10000
+        OrderId:
+          type: string
+          example: "123"
+        Description:
+          type: string
+          example: "Подписка на 1 мес."
+        PayType:
+          type: string
+          description: Принимается, но не влияет на поведение эмулятора
+          example: "O"
+        SuccessURL:
+          type: string
+          format: uri
+          description: URL для редиректа после успешной оплаты
+        FailURL:
+          type: string
+          format: uri
+          description: URL для редиректа после отклонённой оплаты
+        NotificationURL:
+          type: string
+          format: uri
+          description: URL, на который будет отправлен webhook при смене статуса платежа
+        Receipt:
+          type: object
+          description: Принимается, но не влияет на поведение эмулятора (кассовый чек, как в реальном API)
+        Token:
+          type: string
+          description: SHA-256 подпись запроса
+
+    InitResponse:
+      type: object
+      properties:
+        Success:
+          type: boolean
+          example: true
+        ErrorCode:
+          type: string
+          example: "0"
+        TerminalKey:
+          type: string
+        Status:
+          type: string
+          enum: [NEW]
+        PaymentId:
+          type: string
+          example: "2460000000"
+        OrderId:
+          type: string
+        Amount:
+          type: integer
+        PaymentURL:
+          type: string
+          format: uri
+          description: Ссылка на страницу оплаты (`/payment/{paymentId}`)
+
+    GetStateRequest:
+      type: object
+      required: [TerminalKey, PaymentId, Token]
+      properties:
+        TerminalKey:
+          type: string
+        PaymentId:
+          type: string
+          example: "2460000000"
+        Token:
+          type: string
+
+    GetStateResponse:
+      type: object
+      properties:
+        Success:
+          type: boolean
+          example: true
+        ErrorCode:
+          type: string
+          example: "0"
+        Message:
+          type: string
+          example: "OK"
+        TerminalKey:
+          type: string
+        Status:
+          $ref: "#/components/schemas/PaymentStatus"
+        PaymentId:
+          type: string
+        OrderId:
+          type: string
+        Amount:
+          type: integer
+        Params:
+          type: array
+          description: Присутствует после подтверждения платежа (`Route`/`Source` эквайринг-провайдера)
+          items:
+            $ref: "#/components/schemas/PaymentParam"
+
+    CancelRequest:
+      type: object
+      required: [TerminalKey, PaymentId, Token]
+      properties:
+        TerminalKey:
+          type: string
+        PaymentId:
+          type: string
+        Token:
+          type: string
+        Amount:
+          type: integer
+          description: |
+            Сумма возврата в копейках. Если не передана — возвращается вся оставшаяся сумма платежа.
+            Должна быть больше 0 и не превышать оставшуюся (ещё не возвращённую) сумму.
+
+    CancelResponse:
+      type: object
+      properties:
+        Success:
+          type: boolean
+          example: true
+        ErrorCode:
+          type: string
+          example: "0"
+        TerminalKey:
+          type: string
+        Status:
+          type: string
+          enum: [PARTIAL_REFUNDED, REFUNDED]
+        PaymentId:
+          type: string
+        OrderId:
+          type: string
+        OriginalAmount:
+          type: integer
+          description: Исходная сумма платежа
+        NewAmount:
+          type: integer
+          description: Оставшаяся (не возвращённая) сумма после этой операции — `0` при полном возврате
+
+    ErrorResponse:
+      type: object
+      properties:
+        Success:
+          type: boolean
+          example: false
+        ErrorCode:
+          type: string
+          description: |
+            `6` — платёж не найден · `7` — неверный `TerminalKey` · `9` — неверный `Token` ·
+            `15` — платёж нельзя отменить в текущем статусе, либо неверный `Amount` для возврата
+          example: "9"
+        Message:
+          type: string
+          example: "Invalid Token"
+
+    PaymentStatus:
+      type: string
+      enum: [NEW, CONFIRMED, REJECTED, PARTIAL_REFUNDED, REFUNDED]
+      description: |
+        `NEW` — создан, ожидает оплаты · `CONFIRMED` — оплачен ·
+        `REJECTED` — отклонён · `PARTIAL_REFUNDED` — возвращена часть суммы через `/v2/Cancel` ·
+        `REFUNDED` — возвращён полностью через `/v2/Cancel`
+
+    PaymentParam:
+      type: object
+      properties:
+        Key:
+          type: string
+          enum: [Route, Source]
+        Value:
+          type: string
+          example: TinkoffPay
+
+    WebhookPayload:
+      type: object
+      description: Тело POST-запроса, отправляемого на `NotificationURL` при смене статуса платежа
+      properties:
+        TerminalKey:
+          type: string
+        OrderId:
+          type: string
+        Success:
+          type: boolean
+          description: "`true` только для статуса `CONFIRMED`"
+        Status:
+          $ref: "#/components/schemas/PaymentStatus"
+        PaymentId:
+          type: string
+        ErrorCode:
+          type: string
+          description: "`0` в норме, `51` — эмуляция отказа по недостатку средств"
+          example: "0"
+        Message:
+          type: string
+        Amount:
+          type: integer
+        Pan:
+          type: string
+          example: "430000******0777"
+        ExpDate:
+          type: string
+          example: "1228"
+        CardId:
+          type: string
+          example: "123456"
+        Params:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentParam"
+        Token:
+          type: string
+          description: SHA-256 подпись, считается тем же алгоритмом, что и входящие запросы
+
+    PaymentRecord:
+      type: object
+      properties:
+        paymentId:
+          type: integer
+        orderId:
+          type: string
+        amount:
+          type: integer
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/PaymentStatus"
+        notificationURL:
+          type: string
+        requestPayload:
+          type: object
+          description: Исходное тело запроса `/v2/Init`
+        webhooks:
+          type: array
+          description: Лог всех webhook-попыток по платежу
+          items:
+            type: object
+            properties:
+              paymentId:
+                type: integer
+              payload:
+                $ref: "#/components/schemas/WebhookPayload"
+              responseStatus:
+                type: integer
+              responseBody:
+                type: string
+              sentAt:
+                type: string
+                format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time

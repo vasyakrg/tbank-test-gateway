@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "license": "MIT",
   "scripts": {
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "build:docs": "node scripts/generate-llms-docs.js",
+    "postinstall": "node scripts/generate-llms-docs.js"
   },
   "dependencies": {
+    "@scalar/express-api-reference": "^0.10.12",
+    "@scalar/openapi-to-markdown": "^0.5.37",
+    "ejs": "^3.1.10",
     "express": "^4.21.2",
-    "ejs": "^3.1.10"
+    "js-yaml": "^5.2.3"
   }
 }

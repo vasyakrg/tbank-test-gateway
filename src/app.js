@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const { apiReference } = require("@scalar/express-api-reference");
 const { generateToken, verifyToken } = require("./token");
 const storage = require("./storage");
 
@@ -15,6 +16,31 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// --- API Docs (OpenAPI / Scalar) ---
+
+app.get("/openapi.yaml", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "openapi.yaml"));
+});
+
+// Generated at build time (npm postinstall) via scripts/generate-llms-docs.js — see https://llmstxt.org/
+app.get("/llms.txt", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "llms.txt"));
+});
+
+app.get("/llms-full.txt", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "llms-full.txt"));
+});
+
+app.use(
+  "/docs",
+  apiReference({
+    url: "/openapi.yaml",
+    theme: "bluePlanet",
+    darkMode: true,
+    persistAuth: true,
+  })
+);
 
 // --- Payment method variants (randomly assigned on confirm) ---
 
@@ -161,7 +187,7 @@ app.post("/v2/Cancel", async (req, res) => {
     });
   }
 
-  if (payment.status !== "CONFIRMED") {
+  if (payment.status !== "CONFIRMED" && payment.status !== "PARTIAL_REFUNDED") {
     return res.json({
       Success: false,
       ErrorCode: "15",
@@ -169,23 +195,35 @@ app.post("/v2/Cancel", async (req, res) => {
     });
   }
 
-  storage.updateStatus(params.PaymentId, "REFUNDED");
+  const remaining = payment.amount - payment.refundedAmount;
+  const cancelAmount = params.Amount != null ? Number(params.Amount) : remaining;
+
+  if (!Number.isFinite(cancelAmount) || cancelAmount <= 0 || cancelAmount > remaining) {
+    return res.json({
+      Success: false,
+      ErrorCode: "15",
+      Message: `Invalid Amount for cancel: requested ${params.Amount}, remaining ${remaining}`,
+    });
+  }
+
+  storage.refundPayment(params.PaymentId, cancelAmount);
+  const newAmount = remaining - cancelAmount;
 
   const response = {
     Success: true,
     ErrorCode: "0",
     TerminalKey: TERMINAL_KEY,
-    Status: "REFUNDED",
+    Status: payment.status,
     PaymentId: String(payment.paymentId),
     OrderId: payment.orderId,
     OriginalAmount: payment.amount,
-    NewAmount: 0,
+    NewAmount: newAmount,
   };
 
-  console.log("[Cancel] Payment refunded:", { PaymentId: payment.paymentId });
+  console.log("[Cancel] Payment refunded:", { PaymentId: payment.paymentId, Status: payment.status, CancelAmount: cancelAmount, NewAmount: newAmount });
 
   // Send webhook asynchronously
-  sendWebhook(payment, "REFUNDED").catch((err) => {
+  sendWebhook(payment, payment.status).catch((err) => {
     console.error("[Cancel] Webhook failed:", err.message);
   });
 

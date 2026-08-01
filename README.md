@@ -10,7 +10,7 @@
 
 - **Init** — создание платежа, генерация ссылки на страницу оплаты
 - **GetState** — проверка текущего статуса платежа
-- **Cancel** — возврат (refund) подтверждённого платежа
+- **Cancel** — возврат (в т.ч. частичный) подтверждённого платежа
 - **Страница оплаты** — HTML-форма с кнопками «Оплатить» / «Отклонить» / «Недостаточно средств»
 - **Webhook** — POST-уведомление на `NotificationURL` при смене статуса
 - **Payment Log** — веб-интерфейс со списком всех платежей (автообновление 5 сек)
@@ -52,6 +52,25 @@ TERMINAL_KEY=MyTerminal PASSWORD=MyPassword npm start
 | `WEBHOOK_DELAY_PERCENT`   | `50`                        | Процент успешных платежей, для которых применяется задержка  |
 
 **Важно:** `TERMINAL_KEY` и `PASSWORD` должны совпадать с теми, что указаны в конфигурации клиента.
+
+## API-документация (Scalar)
+
+Интерактивная OpenAPI-документация по всем методам эмулятора: `GET /docs`.
+Спецификация в машиночитаемом виде отдаётся по адресу `GET /openapi.yaml` —
+её можно использовать как референс контракта T-Bank Acquiring API при интеграции
+других проектов (запросы/ответы, алгоритм `Token`, коды ошибок, формат webhook).
+
+## Документация для внешних агентов (llms.txt)
+
+Помимо `/openapi.yaml`, эмулятор отдаёт документацию в формате [llms.txt](https://llmstxt.org/) —
+удобном для чтения LLM-агентами других проектов без рендеринга Scalar UI:
+
+- `GET /llms.txt` — краткий индекс: описание, алгоритм `Token`, ссылки, список методов
+- `GET /llms-full.txt` — полная документация по всем операциям в Markdown
+
+Оба файла генерируются из `openapi.yaml` скриптом `scripts/generate-llms-docs.js` —
+автоматически при `npm install`/`npm ci` (хук `postinstall`), в том числе при сборке Docker-образа.
+Сами файлы не хранятся в репозитории (см. `.gitignore`) — это сборочный артефакт, а не исходник.
 
 ## API
 
@@ -117,9 +136,11 @@ TERMINAL_KEY=MyTerminal PASSWORD=MyPassword npm start
 
 ### POST /v2/Cancel
 
-Возврат подтверждённого платежа. Работает только для платежей в статусе `CONFIRMED`.
+Возврат платежа в статусе `CONFIRMED` или `PARTIAL_REFUNDED`. Поддерживает частичный возврат —
+если `Amount` меньше оставшейся суммы платежа, статус становится `PARTIAL_REFUNDED` и возврат
+можно повторить ещё раз на остаток. Если `Amount` не передан — возвращается вся оставшаяся сумма.
 
-**Request:**
+**Request (полный возврат):**
 ```json
 {
   "TerminalKey": "MyTerminal",
@@ -138,7 +159,31 @@ TERMINAL_KEY=MyTerminal PASSWORD=MyPassword npm start
   "PaymentId": "2460000000",
   "OrderId": "123",
   "OriginalAmount": 10000,
-  "Amount": 10000
+  "NewAmount": 0
+}
+```
+
+**Request (частичный возврат, например 4000 из 10000):**
+```json
+{
+  "TerminalKey": "MyTerminal",
+  "PaymentId": "2460000000",
+  "Amount": 4000,
+  "Token": "<sha256>"
+}
+```
+
+**Response:**
+```json
+{
+  "Success": true,
+  "ErrorCode": "0",
+  "TerminalKey": "MyTerminal",
+  "Status": "PARTIAL_REFUNDED",
+  "PaymentId": "2460000000",
+  "OrderId": "123",
+  "OriginalAmount": 10000,
+  "NewAmount": 6000
 }
 ```
 
@@ -207,10 +252,11 @@ TERMINAL_KEY=MyTerminal PASSWORD=MyPassword npm start
 
 | Статус      | Описание                            |
 |-------------|-------------------------------------|
-| `NEW`       | Создан, ожидает оплаты              |
-| `CONFIRMED` | Оплачен (кнопка «Оплатить»)        |
-| `REJECTED`  | Отклонён (кнопка «Отклонить»)       |
-| `REFUNDED`  | Возвращён (через Cancel API)        |
+| `NEW`             | Создан, ожидает оплаты              |
+| `CONFIRMED`       | Оплачен (кнопка «Оплатить»)        |
+| `REJECTED`        | Отклонён (кнопка «Отклонить»)       |
+| `PARTIAL_REFUNDED`| Возвращена часть суммы (через Cancel API) |
+| `REFUNDED`        | Возвращён полностью (через Cancel API)    |
 
 ## Структура проекта
 
@@ -218,8 +264,10 @@ TERMINAL_KEY=MyTerminal PASSWORD=MyPassword npm start
 TBank-gateway/
 ├── Dockerfile
 ├── package.json
-├── VERSION
 ├── README.md
+├── openapi.yaml            # Источник правды для /docs, /openapi.yaml, llms.txt
+├── scripts/
+│   └── generate-llms-docs.js  # Генерирует llms.txt/llms-full.txt из openapi.yaml
 └── src/
     ├── app.js          # Express-сервер, все роуты
     ├── token.js         # Генерация/верификация SHA-256 токена
@@ -237,7 +285,7 @@ TBank-gateway/
 
 - **In-memory хранилище** — данные теряются при перезапуске контейнера
 - **Нет 3DS-эмуляции** — платёж переходит сразу в `CONFIRMED`/`REJECTED`
-- **Нет partial refund** — Cancel всегда возвращает полную сумму
+- **Нет двухстадийной оплаты** — `PayType: "T"` принимается, но не меняет поведение (нет `/v2/Confirm`)
 - **Нет TTL/expiration** — платежи не истекают автоматически
 
 ## Лицензия
